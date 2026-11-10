@@ -13,9 +13,9 @@ import { fetchAdminProfile, signOut, type AuthUser } from "@/services/auth";
 type AuthContextValue = {
   user: AuthUser | null;
   loading: boolean;
-  /** Set when a valid Supabase account was rejected (e.g. not an admin). */
   accessError: string | null;
   clearAccessError: () => void;
+  refresh: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -32,17 +32,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     try {
-      setUser(await fetchAdminProfile());
+      const profile = await fetchAdminProfile();
+      setUser(profile);
       setAccessError(null);
     } catch (error) {
       setUser(null);
       if (error instanceof ApiError && error.status === 403) {
         setAccessError("This account does not have admin access.");
-        await signOut();
+        setTimeout(() => {
+          void signOut();
+        }, 0);
       } else if (error instanceof ApiError && error.status === 401) {
-        await signOut();
+        setTimeout(() => {
+          void signOut();
+        }, 0);
       } else {
-        setAccessError("Could not verify your session. Please try again.");
+        setAccessError(
+          error instanceof Error
+            ? error.message
+            : "Could not verify your session. Please try again.",
+        );
       }
     } finally {
       setLoading(false);
@@ -50,17 +59,54 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (!supabaseConfigured) return;
+    if (!supabaseConfigured) {
+      setLoading(false);
+      return;
+    }
 
-    // onAuthStateChange fires INITIAL_SESSION on subscribe, so no separate
-    // getSession() call is needed. Callbacks must not await supabase calls
-    // directly, so the profile lookup is deferred.
+    let cancelled = false;
+
+    void supabase.auth
+      .getSession()
+      .then(({ data }) => {
+        if (cancelled) return;
+        void resolveProfile(Boolean(data.session));
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setUser(null);
+        setLoading(false);
+        setAccessError("Could not restore your session. Please sign in again.");
+      });
+
     const { data } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event === "TOKEN_REFRESHED") return;
+      if (event === "INITIAL_SESSION" || event === "TOKEN_REFRESHED") return;
+      if (cancelled) return;
       setLoading(true);
-      setTimeout(() => void resolveProfile(Boolean(session)), 0);
+      setTimeout(() => {
+        if (!cancelled) void resolveProfile(Boolean(session));
+      }, 0);
     });
-    return () => data.subscription.unsubscribe();
+
+    const timeout = window.setTimeout(() => {
+      if (!cancelled) setLoading(false);
+    }, 15000);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeout);
+      data.subscription.unsubscribe();
+    };
+  }, [resolveProfile]);
+
+  const refresh = useCallback(async () => {
+    if (!supabaseConfigured) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    const { data } = await supabase.auth.getSession();
+    await resolveProfile(Boolean(data.session));
   }, [resolveProfile]);
 
   const value = useMemo<AuthContextValue>(
@@ -69,8 +115,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       loading,
       accessError,
       clearAccessError: () => setAccessError(null),
+      refresh,
     }),
-    [user, loading, accessError],
+    [user, loading, accessError, refresh],
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

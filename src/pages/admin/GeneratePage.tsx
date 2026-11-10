@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { generationConfigSchema } from "@/lib/validations";
 import { listResources } from "@/services/resources";
 import { listSubjects, listTopics } from "@/services/subjects";
@@ -20,29 +21,50 @@ export function GeneratePage() {
   const [error, setError] = useState<string | null>(null);
   const [totalMarks, setTotalMarks] = useState(20);
   const [marksPerQuestion, setMarksPerQuestion] = useState(1);
+  const [loadingSubjects, setLoadingSubjects] = useState(true);
+  const [loadingOptions, setLoadingOptions] = useState(false);
+  const [generating, setGenerating] = useState(false);
 
-  // One MCQ per "marks per question": 20 marks at 1 mark each => 20 MCQs.
   const questionCount =
     marksPerQuestion > 0 ? Math.round(totalMarks / marksPerQuestion) : 0;
   const marksDivideEvenly =
     marksPerQuestion > 0 && Number.isInteger(totalMarks / marksPerQuestion);
 
   useEffect(() => {
-    listSubjects().then(setSubjects).catch((err: unknown) => {
-      setError(err instanceof Error ? err.message : "Failed to load subjects");
-    });
+    setLoadingSubjects(true);
+    listSubjects()
+      .then(setSubjects)
+      .catch((err: unknown) => {
+        setError(err instanceof Error ? err.message : "Failed to load subjects");
+      })
+      .finally(() => setLoadingSubjects(false));
   }, []);
 
   useEffect(() => {
-    if (!subjectId) return;
+    if (!subjectId) {
+      setTopics([]);
+      setResources([]);
+      return;
+    }
+    let cancelled = false;
+    setLoadingOptions(true);
     Promise.all([listTopics(subjectId), listResources({ subject_id: subjectId })])
       .then(([nextTopics, nextResources]) => {
+        if (cancelled) return;
         setTopics(nextTopics);
         setResources(nextResources.filter((item) => item.processing_status === "processed"));
       })
       .catch((err: unknown) => {
-        setError(err instanceof Error ? err.message : "Failed to load resources");
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "Failed to load resources");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingOptions(false);
       });
+    return () => {
+      cancelled = true;
+    };
   }, [subjectId]);
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
@@ -53,31 +75,33 @@ export function GeneratePage() {
       setError("Total marks must be divisible by marks per question.");
       return;
     }
-    const form = new FormData(event.currentTarget);
-    const topicIds = form.getAll("topic_ids").map(String);
-    const resourceIds = form.getAll("resource_ids").map(String);
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const topicIds = data.getAll("topic_ids").map(String);
+    const resourceIds = data.getAll("resource_ids").map(String);
     const parsed = generationConfigSchema.safeParse({
-      examination_title: form.get("examination_title"),
+      examination_title: data.get("examination_title"),
       subject_id: subjectId,
       topic_ids: topicIds,
       resource_ids: resourceIds,
       number_of_questions: questionCount,
       total_marks: totalMarks,
       marks_per_question: marksPerQuestion,
-      negative_marking: Number(form.get("negative_marking")),
+      negative_marking: Number(data.get("negative_marking")),
       difficulty_distribution: {
-        easy: Number(form.get("easy")),
-        medium: Number(form.get("medium")),
-        hard: Number(form.get("hard")),
+        easy: Number(data.get("easy")),
+        medium: Number(data.get("medium")),
+        hard: Number(data.get("hard")),
       },
-      language: form.get("language"),
+      language: data.get("language"),
       options_per_question: 4,
-      additional_instructions: String(form.get("additional_instructions") ?? "") || undefined,
+      additional_instructions: String(data.get("additional_instructions") ?? "") || undefined,
     });
     if (!parsed.success) {
       setError(parsed.error.issues[0]?.message ?? "Invalid configuration");
       return;
     }
+    setGenerating(true);
     try {
       const job = await startGeneration(parsed.data, crypto.randomUUID());
       const shortfall = questionCount - job.generated_count;
@@ -90,6 +114,8 @@ export function GeneratePage() {
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Generation failed");
+    } finally {
+      setGenerating(false);
     }
   }
 
@@ -106,125 +132,148 @@ export function GeneratePage() {
           <CardTitle>Generation configuration</CardTitle>
         </CardHeader>
         <CardContent>
-          <form className="grid gap-4 sm:grid-cols-2" onSubmit={onSubmit}>
-            <div className="space-y-2 sm:col-span-2">
-              <Label htmlFor="examination_title">Examination title</Label>
-              <Input id="examination_title" name="examination_title" required />
+          {loadingSubjects ? (
+            <div className="space-y-3">
+              <Skeleton className="h-9 w-full" />
+              <Skeleton className="h-9 w-full" />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="subject_id">Subject</Label>
-              <select
-                id="subject_id"
-                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
-                value={subjectId}
-                onChange={(event) => setSubjectId(event.target.value)}
-                required
-              >
-                <option value="">Select subject</option>
-                {subjects.map((subject) => (
-                  <option key={subject.id} value={subject.id}>
-                    {subject.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="language">Language</Label>
-              <select
-                id="language"
-                name="language"
-                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
-                defaultValue="bn"
-              >
-                <option value="bn">Bangla</option>
-                <option value="en">English</option>
-              </select>
-            </div>
-            <div className="space-y-2 sm:col-span-2">
-              <Label>Topics</Label>
-              <div className="grid gap-2 sm:grid-cols-2">
-                {topics.map((topic) => (
-                  <label key={topic.id} className="flex items-start gap-2 text-sm">
-                    <input className="mt-0.5 shrink-0" type="checkbox" name="topic_ids" value={topic.id} />
-                    <span className="break-words">{topic.name}</span>
-                  </label>
-                ))}
+          ) : (
+            <form className="grid gap-4 sm:grid-cols-2" onSubmit={onSubmit}>
+              <div className="space-y-2 sm:col-span-2">
+                <Label htmlFor="examination_title">Examination title</Label>
+                <Input id="examination_title" name="examination_title" required />
               </div>
-            </div>
-            <div className="space-y-2 sm:col-span-2">
-              <Label>Resources</Label>
-              <div className="grid gap-2">
-                {resources.map((resource) => (
-                  <label key={resource.id} className="flex items-start gap-2 text-sm">
-                    <input className="mt-0.5 shrink-0" type="checkbox" name="resource_ids" value={resource.id} />
-                    <span className="break-words">
-                      {resource.title} ({resource.category})
-                    </span>
-                  </label>
-                ))}
+              <div className="space-y-2">
+                <Label htmlFor="subject_id">Subject</Label>
+                <select
+                  id="subject_id"
+                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+                  value={subjectId}
+                  onChange={(event) => setSubjectId(event.target.value)}
+                  required
+                >
+                  <option value="">Select subject</option>
+                  {subjects.map((subject) => (
+                    <option key={subject.id} value={subject.id}>
+                      {subject.name}
+                    </option>
+                  ))}
+                </select>
               </div>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="total_marks">Total marks</Label>
-              <Input
-                id="total_marks"
-                name="total_marks"
-                type="number"
-                min={1}
-                value={totalMarks}
-                onChange={(event) => setTotalMarks(Number(event.target.value))}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="marks_per_question">Marks per question</Label>
-              <Input
-                id="marks_per_question"
-                name="marks_per_question"
-                type="number"
-                min={0.25}
-                step="0.25"
-                value={marksPerQuestion}
-                onChange={(event) => setMarksPerQuestion(Number(event.target.value))}
-              />
-            </div>
-            <p className="text-sm sm:col-span-2">
-              {marksDivideEvenly && questionCount > 0 ? (
-                <>
-                  Will generate <strong>{questionCount}</strong> MCQs ({totalMarks} marks ÷{" "}
-                  {marksPerQuestion} per question).
-                </>
-              ) : (
-                <span className="text-destructive">
-                  Total marks must be divisible by marks per question.
-                </span>
-              )}
-            </p>
-            <div className="space-y-2">
-              <Label htmlFor="negative_marking">Negative marking</Label>
-              <Input id="negative_marking" name="negative_marking" type="number" step="0.01" defaultValue={0.25} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="easy">Easy %</Label>
-              <Input id="easy" name="easy" type="number" defaultValue={30} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="medium">Medium %</Label>
-              <Input id="medium" name="medium" type="number" defaultValue={50} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="hard">Hard %</Label>
-              <Input id="hard" name="hard" type="number" defaultValue={20} />
-            </div>
-            <div className="space-y-2 sm:col-span-2">
-              <Label htmlFor="additional_instructions">Additional AI instructions</Label>
-              <Textarea id="additional_instructions" name="additional_instructions" />
-            </div>
-            <div className="sm:col-span-2">
-              <Button type="submit" className="w-full sm:w-auto">
-                Generate draft questions
-              </Button>
-            </div>
-          </form>
+              <div className="space-y-2">
+                <Label htmlFor="language">Language</Label>
+                <select
+                  id="language"
+                  name="language"
+                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+                  defaultValue="bn"
+                >
+                  <option value="bn">Bangla</option>
+                  <option value="en">English</option>
+                </select>
+              </div>
+              <div className="space-y-2 sm:col-span-2">
+                <Label>Topics</Label>
+                {loadingOptions ? (
+                  <Skeleton className="h-16 w-full" />
+                ) : (
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {topics.map((topic) => (
+                      <label key={topic.id} className="flex items-start gap-2 text-sm">
+                        <input className="mt-0.5 shrink-0" type="checkbox" name="topic_ids" value={topic.id} />
+                        <span className="break-words">{topic.name}</span>
+                      </label>
+                    ))}
+                    {topics.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">No topics for this subject.</p>
+                    ) : null}
+                  </div>
+                )}
+              </div>
+              <div className="space-y-2 sm:col-span-2">
+                <Label>Resources</Label>
+                {loadingOptions ? (
+                  <Skeleton className="h-16 w-full" />
+                ) : (
+                  <div className="grid gap-2">
+                    {resources.map((resource) => (
+                      <label key={resource.id} className="flex items-start gap-2 text-sm">
+                        <input className="mt-0.5 shrink-0" type="checkbox" name="resource_ids" value={resource.id} />
+                        <span className="break-words">
+                          {resource.title} ({resource.category})
+                        </span>
+                      </label>
+                    ))}
+                    {resources.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">
+                        No processed PDFs for this subject.
+                      </p>
+                    ) : null}
+                  </div>
+                )}
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="total_marks">Total marks</Label>
+                <Input
+                  id="total_marks"
+                  name="total_marks"
+                  type="number"
+                  min={1}
+                  value={totalMarks}
+                  onChange={(event) => setTotalMarks(Number(event.target.value))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="marks_per_question">Marks per question</Label>
+                <Input
+                  id="marks_per_question"
+                  name="marks_per_question"
+                  type="number"
+                  min={0.25}
+                  step="0.25"
+                  value={marksPerQuestion}
+                  onChange={(event) => setMarksPerQuestion(Number(event.target.value))}
+                />
+              </div>
+              <p className="text-sm sm:col-span-2">
+                {marksDivideEvenly && questionCount > 0 ? (
+                  <>
+                    Will generate <strong>{questionCount}</strong> MCQs ({totalMarks} marks ÷{" "}
+                    {marksPerQuestion} per question).
+                  </>
+                ) : (
+                  <span className="text-destructive">
+                    Total marks must be divisible by marks per question.
+                  </span>
+                )}
+              </p>
+              <div className="space-y-2">
+                <Label htmlFor="negative_marking">Negative marking</Label>
+                <Input id="negative_marking" name="negative_marking" type="number" step="0.01" defaultValue={0.25} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="easy">Easy %</Label>
+                <Input id="easy" name="easy" type="number" defaultValue={30} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="medium">Medium %</Label>
+                <Input id="medium" name="medium" type="number" defaultValue={50} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="hard">Hard %</Label>
+                <Input id="hard" name="hard" type="number" defaultValue={20} />
+              </div>
+              <div className="space-y-2 sm:col-span-2">
+                <Label htmlFor="additional_instructions">Additional AI instructions</Label>
+                <Textarea id="additional_instructions" name="additional_instructions" />
+              </div>
+              <div className="sm:col-span-2">
+                <Button type="submit" className="w-full sm:w-auto" disabled={generating}>
+                  {generating ? "Generating..." : "Generate draft questions"}
+                </Button>
+              </div>
+            </form>
+          )}
         </CardContent>
       </Card>
     </div>

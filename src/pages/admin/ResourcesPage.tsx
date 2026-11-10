@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { RESOURCE_CATEGORIES, MAX_PDF_SIZE_BYTES } from "@/lib/constants";
 import { listResources, retryProcessing, uploadResource } from "@/services/resources";
 import { listSubjects } from "@/services/subjects";
@@ -15,8 +16,12 @@ export function ResourcesPage() {
   const [resources, setResources] = useState<Resource[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const [retryingId, setRetryingId] = useState<string | null>(null);
 
   useEffect(() => {
+    setLoading(true);
     Promise.all([listResources(), listSubjects()])
       .then(([nextResources, nextSubjects]) => {
         setResources(nextResources);
@@ -24,7 +29,8 @@ export function ResourcesPage() {
       })
       .catch((err: unknown) => {
         setError(err instanceof Error ? err.message : "Failed to load resources");
-      });
+      })
+      .finally(() => setLoading(false));
   }, []);
 
   async function onUpload(event: FormEvent<HTMLFormElement>) {
@@ -42,6 +48,7 @@ export function ResourcesPage() {
       setError("File exceeds 20 MB limit.");
       return;
     }
+    setUploading(true);
     try {
       const resource = await uploadResource(
         {
@@ -52,10 +59,25 @@ export function ResourcesPage() {
         },
         file,
       );
-      setResources((prev) => [resource, ...prev]);
       form.reset();
+      setResources((prev) => [resource, ...prev.filter((item) => item.id !== resource.id)]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function onRetry(id: string) {
+    setError(null);
+    setRetryingId(id);
+    try {
+      const next = await retryProcessing(id);
+      setResources((prev) => prev.map((item) => (item.id === next.id ? next : item)));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Retry failed");
+    } finally {
+      setRetryingId(null);
     }
   }
 
@@ -111,14 +133,19 @@ export function ResourcesPage() {
               <Input id="file" name="file" type="file" accept="application/pdf" required />
             </div>
             <div className="sm:col-span-2">
-              <Button type="submit" className="w-full sm:w-auto">
-                Upload
+              <Button type="submit" className="w-full sm:w-auto" disabled={uploading}>
+                {uploading ? "Uploading..." : "Upload"}
               </Button>
             </div>
           </form>
         </CardContent>
       </Card>
-      {resources.length === 0 ? (
+      {loading ? (
+        <div className="space-y-2">
+          <Skeleton className="h-16 w-full" />
+          <Skeleton className="h-16 w-full" />
+        </div>
+      ) : resources.length === 0 ? (
         <EmptyState
           title="No resources"
           description="Upload previous papers, answer keys, and subject materials as separate PDFs."
@@ -142,9 +169,10 @@ export function ResourcesPage() {
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={() => retryProcessing(resource.id)}
+                    disabled={retryingId === resource.id}
+                    onClick={() => void onRetry(resource.id)}
                   >
-                    Retry
+                    {retryingId === resource.id ? "Retrying..." : "Retry"}
                   </Button>
                 ) : null}
               </div>

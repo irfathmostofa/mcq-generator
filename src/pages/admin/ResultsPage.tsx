@@ -15,14 +15,17 @@ export function ResultsPage() {
   const [examId, setExamId] = useState("");
   const [results, setResults] = useState<ResultRow[]>([]);
   const [loading, setLoading] = useState(false);
+  const [examsLoading, setExamsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    setExamsLoading(true);
     listExaminations()
       .then(setExams)
       .catch((err: unknown) => {
         setError(err instanceof Error ? err.message : "Failed to load exams");
-      });
+      })
+      .finally(() => setExamsLoading(false));
   }, []);
 
   useEffect(() => {
@@ -90,8 +93,11 @@ export function ResultsPage() {
               className="flex h-9 w-full max-w-full rounded-md border border-input bg-transparent px-3 text-sm"
               value={examId}
               onChange={(event) => setExamId(event.target.value)}
+              disabled={examsLoading}
             >
-              <option value="">Select an examination</option>
+              <option value="">
+                {examsLoading ? "Loading examinations..." : "Select an examination"}
+              </option>
               {exams.map((exam) => (
                 <option key={exam.id} value={exam.id}>
                   {exam.title} ({exam.status})

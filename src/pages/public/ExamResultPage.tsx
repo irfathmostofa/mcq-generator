@@ -9,22 +9,41 @@ export function ExamResultPage() {
   const [hidden, setHidden] = useState(false);
   const [result, setResult] = useState<ExamResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!slug) return;
     const token = sessionStorage.getItem(`resultToken:${slug}`);
+    const cached = sessionStorage.getItem(`result:${slug}`);
+    if (cached) {
+      try {
+        setResult(JSON.parse(cached) as ExamResult);
+      } catch {
+        setResult(null);
+      }
+    }
     if (!token) {
-      setError("No submitted attempt found in this browser session.");
+      setLoading(false);
+      if (!cached) {
+        setError("No submitted attempt found in this browser session.");
+      }
       return;
     }
+    setLoading(true);
     fetchAttemptResult(token)
       .then((data) => {
         setHidden(Boolean(data.hidden));
-        setResult(data.result ?? null);
+        if (data.result) {
+          setResult(data.result);
+          sessionStorage.setItem(`result:${slug}`, JSON.stringify(data.result));
+        }
       })
       .catch((err: unknown) => {
-        setError(err instanceof Error ? err.message : "Unable to load result");
-      });
+        if (!cached) {
+          setError(err instanceof Error ? err.message : "Unable to load result");
+        }
+      })
+      .finally(() => setLoading(false));
   }, [slug]);
 
   return (
@@ -33,6 +52,9 @@ export function ExamResultPage() {
         <CardTitle>Result</CardTitle>
       </CardHeader>
       <CardContent>
+        {loading && !result ? (
+          <p className="text-sm text-muted-foreground">Loading result...</p>
+        ) : null}
         {error ? <p className="text-sm text-destructive">{error}</p> : null}
         {hidden ? (
           <p className="text-sm text-muted-foreground">

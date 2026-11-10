@@ -1,10 +1,11 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { EmptyState } from "@/components/EmptyState";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   createSubject,
   createTopic,
@@ -18,49 +19,107 @@ export function SubjectsPage() {
   const [topics, setTopics] = useState<Topic[]>([]);
   const [selectedSubject, setSelectedSubject] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [topicsLoading, setTopicsLoading] = useState(false);
+  const [savingSubject, setSavingSubject] = useState(false);
+  const [savingTopic, setSavingTopic] = useState(false);
 
-  async function refresh() {
+  const refresh = useCallback(async () => {
     const next = await listSubjects();
     setSubjects(next);
-    if (next[0] && !selectedSubject) setSelectedSubject(next[0].id);
-  }
-
-  useEffect(() => {
-    refresh().catch((err: unknown) => {
-      setError(err instanceof Error ? err.message : "Failed to load subjects");
-    });
+    setSelectedSubject((current) => current || next[0]?.id || "");
   }, []);
 
   useEffect(() => {
-    if (!selectedSubject) return;
-    listTopics(selectedSubject)
-      .then(setTopics)
+    setLoading(true);
+    refresh()
       .catch((err: unknown) => {
-        setError(err instanceof Error ? err.message : "Failed to load topics");
+        setError(err instanceof Error ? err.message : "Failed to load subjects");
+      })
+      .finally(() => setLoading(false));
+  }, [refresh]);
+
+  useEffect(() => {
+    if (!selectedSubject) {
+      setTopics([]);
+      return;
+    }
+    let cancelled = false;
+    setTopicsLoading(true);
+    listTopics(selectedSubject)
+      .then((next) => {
+        if (!cancelled) setTopics(next);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "Failed to load topics");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setTopicsLoading(false);
       });
+    return () => {
+      cancelled = true;
+    };
   }, [selectedSubject]);
 
   async function onCreateSubject(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    await createSubject({
-      name: String(form.get("name") ?? ""),
-      description: String(form.get("description") ?? "") || undefined,
-    });
-    event.currentTarget.reset();
-    await refresh();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const name = String(data.get("name") ?? "").trim();
+    const description = String(data.get("description") ?? "").trim();
+    if (name.length < 2) {
+      setError("Subject name must be at least 2 characters.");
+      return;
+    }
+    setError(null);
+    setSavingSubject(true);
+    try {
+      const created = await createSubject({
+        name,
+        description: description || undefined,
+      });
+      form.reset();
+      setSubjects((prev) => {
+        if (prev.some((item) => item.id === created.id)) return prev;
+        return [...prev, created].sort((a, b) => a.name.localeCompare(b.name));
+      });
+      setSelectedSubject((current) => current || created.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create subject");
+    } finally {
+      setSavingSubject(false);
+    }
   }
 
   async function onCreateTopic(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedSubject) return;
-    const form = new FormData(event.currentTarget);
-    await createTopic({
-      subject_id: selectedSubject,
-      name: String(form.get("topic_name") ?? ""),
-    });
-    event.currentTarget.reset();
-    setTopics(await listTopics(selectedSubject));
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const name = String(data.get("topic_name") ?? "").trim();
+    if (name.length < 2) {
+      setError("Topic name must be at least 2 characters.");
+      return;
+    }
+    setError(null);
+    setSavingTopic(true);
+    try {
+      const created = await createTopic({
+        subject_id: selectedSubject,
+        name,
+      });
+      form.reset();
+      setTopics((prev) => {
+        if (prev.some((item) => item.id === created.id)) return prev;
+        return [...prev, created].sort((a, b) => a.name.localeCompare(b.name));
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create topic");
+    } finally {
+      setSavingTopic(false);
+    }
   }
 
   return (
@@ -85,7 +144,9 @@ export function SubjectsPage() {
                 <Label htmlFor="description">Description</Label>
                 <Input id="description" name="description" />
               </div>
-              <Button type="submit">Create subject</Button>
+              <Button type="submit" disabled={savingSubject}>
+                {savingSubject ? "Creating..." : "Create subject"}
+              </Button>
             </form>
           </CardContent>
         </Card>
@@ -99,8 +160,8 @@ export function SubjectsPage() {
                 <Label htmlFor="topic_name">Name</Label>
                 <Input id="topic_name" name="topic_name" required />
               </div>
-              <Button type="submit" disabled={!selectedSubject}>
-                Create topic
+              <Button type="submit" disabled={!selectedSubject || savingTopic}>
+                {savingTopic ? "Creating..." : "Create topic"}
               </Button>
             </form>
           </CardContent>
@@ -109,7 +170,12 @@ export function SubjectsPage() {
       <div className="mt-8 grid gap-6 lg:grid-cols-2">
         <div>
           <h2 className="mb-3 font-semibold">Subjects</h2>
-          {subjects.length === 0 ? (
+          {loading ? (
+            <div className="space-y-2">
+              <Skeleton className="h-12 w-full" />
+              <Skeleton className="h-12 w-full" />
+            </div>
+          ) : subjects.length === 0 ? (
             <EmptyState
               title="No subjects"
               description="Add Bangladesh Affairs, English, Mathematics, or any custom subject."
@@ -134,7 +200,12 @@ export function SubjectsPage() {
         </div>
         <div>
           <h2 className="mb-3 font-semibold">Topics</h2>
-          {topics.length === 0 ? (
+          {topicsLoading ? (
+            <div className="space-y-2">
+              <Skeleton className="h-12 w-full" />
+              <Skeleton className="h-12 w-full" />
+            </div>
+          ) : topics.length === 0 ? (
             <EmptyState
               title="No topics"
               description="Select a subject and add topics such as Liberation War or Algebra."

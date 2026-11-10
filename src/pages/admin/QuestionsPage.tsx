@@ -3,6 +3,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { EmptyState } from "@/components/EmptyState";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   approveQuestion,
   listQuestions,
@@ -13,16 +14,47 @@ import {
 export function QuestionsPage() {
   const [questions, setQuestions] = useState<QuestionWithSources[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState<string | null>(null);
 
   async function refresh() {
     setQuestions(await listQuestions());
   }
 
   useEffect(() => {
-    refresh().catch((err: unknown) => {
-      setError(err instanceof Error ? err.message : "Failed to load questions");
-    });
+    setLoading(true);
+    refresh()
+      .catch((err: unknown) => {
+        setError(err instanceof Error ? err.message : "Failed to load questions");
+      })
+      .finally(() => setLoading(false));
   }, []);
+
+  async function onApprove(id: string) {
+    setBusyId(id);
+    setError(null);
+    try {
+      await approveQuestion(id);
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Approve failed");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function onReject(id: string) {
+    setBusyId(id);
+    setError(null);
+    try {
+      await rejectQuestion(id);
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Reject failed");
+    } finally {
+      setBusyId(null);
+    }
+  }
 
   return (
     <div>
@@ -31,7 +63,12 @@ export function QuestionsPage() {
         description="Review source-grounded drafts. Approve before they can be snapshotted into an examination."
       />
       {error ? <p className="mb-4 text-sm text-destructive">{error}</p> : null}
-      {questions.length === 0 ? (
+      {loading ? (
+        <div className="space-y-3">
+          <Skeleton className="h-32 w-full" />
+          <Skeleton className="h-32 w-full" />
+        </div>
+      ) : questions.length === 0 ? (
         <EmptyState
           title="No questions"
           description="Generate MCQs from processed PDFs. Uncertain items stay flagged until reviewed."
@@ -68,18 +105,16 @@ export function QuestionsPage() {
               <div className="mt-3 flex flex-wrap gap-2">
                 <Button
                   size="sm"
-                  onClick={() =>
-                    approveQuestion(question.id).then(() => refresh())
-                  }
+                  disabled={busyId === question.id}
+                  onClick={() => void onApprove(question.id)}
                 >
                   Approve
                 </Button>
                 <Button
                   size="sm"
                   variant="outline"
-                  onClick={() =>
-                    rejectQuestion(question.id).then(() => refresh())
-                  }
+                  disabled={busyId === question.id}
+                  onClick={() => void onReject(question.id)}
                 >
                   Reject
                 </Button>

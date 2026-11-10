@@ -13,30 +13,39 @@ export function ExamLandingPage() {
   const [exam, setExam] = useState<PublicExam | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!slug) return;
+    setLoading(true);
     fetchPublicExam(slug)
-      .then((data) => setExam(data.exam))
+      .then((data) => {
+        setExam(data.exam);
+        setError(null);
+      })
       .catch((err: unknown) => {
+        setExam(null);
         setError(err instanceof Error ? err.message : "Examination not available");
-      });
+      })
+      .finally(() => setLoading(false));
   }, [slug]);
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!slug) return;
-    const form = new FormData(event.currentTarget);
+    const form = event.currentTarget;
+    const data = new FormData(form);
     const parsed = participantSchema.safeParse({
-      full_name: form.get("full_name"),
-      email: form.get("email"),
-      phone: form.get("phone"),
+      full_name: data.get("full_name"),
+      email: data.get("email"),
+      phone: data.get("phone"),
     });
     if (!parsed.success) {
       setError("Enter a valid name, email, and phone number.");
       return;
     }
     setPending(true);
+    setError(null);
     try {
       const attempt = await startExam(slug, parsed.data);
       sessionStorage.setItem(
@@ -60,11 +69,13 @@ export function ExamLandingPage() {
     <Card>
       <CardHeader>
         <CardTitle className="break-words text-xl sm:text-2xl">
-          {exam?.title ?? "Start examination"}
+          {exam?.title ?? (loading ? "Loading examination..." : "Start examination")}
         </CardTitle>
       </CardHeader>
       <CardContent>
-        {exam ? (
+        {loading ? (
+          <p className="text-sm text-muted-foreground">Loading examination...</p>
+        ) : exam ? (
           <div className="mb-4 space-y-1 text-sm text-muted-foreground">
             <p>{exam.description || "No account required."}</p>
             <p>
@@ -76,24 +87,28 @@ export function ExamLandingPage() {
             {exam.instructions ? <p>{exam.instructions}</p> : null}
           </div>
         ) : null}
-        <form className="space-y-3" onSubmit={onSubmit}>
-          <div className="space-y-2">
-            <Label htmlFor="full_name">Full name</Label>
-            <Input id="full_name" name="full_name" required />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="email">Email</Label>
-            <Input id="email" name="email" type="email" required />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="phone">Phone</Label>
-            <Input id="phone" name="phone" required />
-          </div>
-          {error ? <p className="text-sm text-destructive">{error}</p> : null}
-          <Button className="w-full sm:w-auto" type="submit" disabled={pending || !exam}>
-            {pending ? "Starting..." : "Start exam"}
-          </Button>
-        </form>
+        {!loading ? (
+          <form className="space-y-3" onSubmit={onSubmit}>
+            <div className="space-y-2">
+              <Label htmlFor="full_name">Full name</Label>
+              <Input id="full_name" name="full_name" required />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="email">Email</Label>
+              <Input id="email" name="email" type="email" required />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="phone">Phone</Label>
+              <Input id="phone" name="phone" required />
+            </div>
+            {error ? <p className="text-sm text-destructive">{error}</p> : null}
+            <Button className="w-full sm:w-auto" type="submit" disabled={pending || !exam}>
+              {pending ? "Starting..." : "Start exam"}
+            </Button>
+          </form>
+        ) : error ? (
+          <p className="text-sm text-destructive">{error}</p>
+        ) : null}
       </CardContent>
     </Card>
   );

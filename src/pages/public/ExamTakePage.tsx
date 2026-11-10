@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -32,6 +32,16 @@ export function ExamTakePage() {
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const finishingRef = useRef(false);
+  const answersRef = useRef(answers);
+  const reviewRef = useRef(review);
+
+  useEffect(() => {
+    answersRef.current = answers;
+  }, [answers]);
+
+  useEffect(() => {
+    reviewRef.current = review;
+  }, [review]);
 
   useEffect(() => {
     if (!slug) return;
@@ -40,28 +50,14 @@ export function ExamTakePage() {
       navigate(`/exam/${slug}`, { replace: true });
       return;
     }
-    setAttempt(JSON.parse(raw) as AttemptState);
+    try {
+      setAttempt(JSON.parse(raw) as AttemptState);
+    } catch {
+      navigate(`/exam/${slug}`, { replace: true });
+    }
   }, [navigate, slug]);
 
-  useEffect(() => {
-    if (!attempt) return;
-    const tick = () => {
-      setClock(remainingLabel(attempt.deadlineAt));
-      if (
-        attempt.deadlineAt &&
-        new Date(attempt.deadlineAt).getTime() <= Date.now() &&
-        !finishingRef.current
-      ) {
-        finishingRef.current = true;
-        void finish();
-      }
-    };
-    tick();
-    const timer = window.setInterval(tick, 1000);
-    return () => window.clearInterval(timer);
-  }, [attempt]);
-
-  const questions = attempt?.questions ?? [];
+  const questions = useMemo(() => attempt?.questions ?? [], [attempt]);
   const current = questions[index];
   const optionText = current
     ? {
@@ -76,30 +72,75 @@ export function ExamTakePage() {
     [answers, questions],
   );
 
-  function payload() {
+  const payload = useCallback(() => {
+    const currentAnswers = answersRef.current;
+    const currentReview = reviewRef.current;
     return questions.map((question) => ({
       examination_question_id: question.id,
-      selected_option: answers[question.id] ?? null,
-      marked_for_review: Boolean(review[question.id]),
+      selected_option: currentAnswers[question.id] ?? null,
+      marked_for_review: Boolean(currentReview[question.id]),
     }));
-  }
+  }, [questions]);
 
-  async function persist() {
+  const persist = useCallback(async () => {
     if (!attempt) return;
     await saveAnswers(attempt.accessToken, payload());
-  }
+  }, [attempt, payload]);
 
-  async function finish() {
-    if (!attempt || !slug || pending) return;
+  const finish = useCallback(async () => {
+    if (!attempt || !slug || finishingRef.current) return;
+    finishingRef.current = true;
     setPending(true);
     try {
-      await submitExam(attempt.accessToken, payload());
+      const submitted = await submitExam(attempt.accessToken, payload());
       sessionStorage.setItem(`resultToken:${slug}`, attempt.accessToken);
+      if (submitted.result) {
+        sessionStorage.setItem(`result:${slug}`, JSON.stringify(submitted.result));
+      }
+      sessionStorage.removeItem(`attempt:${slug}`);
       navigate(`/exam/${slug}/result`, { replace: true });
     } catch (err) {
+      finishingRef.current = false;
       setError(err instanceof Error ? err.message : "Submit failed");
       setPending(false);
     }
+  }, [attempt, navigate, payload, slug]);
+
+  useEffect(() => {
+    if (!attempt) return;
+    const tick = () => {
+      setClock(remainingLabel(attempt.deadlineAt));
+      if (
+        attempt.deadlineAt &&
+        new Date(attempt.deadlineAt).getTime() <= Date.now() &&
+        !finishingRef.current
+      ) {
+        void finish();
+      }
+    };
+    tick();
+    const timer = window.setInterval(tick, 1000);
+    return () => window.clearInterval(timer);
+  }, [attempt, finish]);
+
+  if (!attempt) {
+    return (
+      <Card>
+        <CardContent className="p-6 text-sm text-muted-foreground">
+          Loading examination...
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (questions.length === 0) {
+    return (
+      <Card>
+        <CardContent className="p-6 text-sm text-muted-foreground">
+          This examination has no questions yet.
+        </CardContent>
+      </Card>
+    );
   }
 
   if (!current) {

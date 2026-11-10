@@ -1,4 +1,4 @@
-import { supabase } from "@/lib/supabase";
+import { supabase, supabaseConfigured } from "@/lib/supabase";
 
 export class ApiError extends Error {
   status: number;
@@ -9,9 +9,13 @@ export class ApiError extends Error {
 }
 
 async function getAccessToken(): Promise<string | null> {
-  // getSession() transparently refreshes an expired access token.
-  const { data } = await supabase.auth.getSession();
-  return data.session?.access_token ?? null;
+  if (!supabaseConfigured) return null;
+  try {
+    const { data } = await supabase.auth.getSession();
+    return data.session?.access_token ?? null;
+  } catch {
+    return null;
+  }
 }
 
 export async function api<T>(
@@ -25,7 +29,27 @@ export async function api<T>(
   const token = await getAccessToken();
   if (token) headers.set("Authorization", `Bearer ${token}`);
 
-  const response = await fetch(path, { ...options, headers });
+  const controller = new AbortController();
+  const timeoutMs = options.body instanceof FormData ? 180000 : 120000;
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+  if (options.signal) {
+    options.signal.addEventListener("abort", () => controller.abort());
+  }
+  let response: Response;
+  try {
+    response = await fetch(path, {
+      ...options,
+      headers,
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new ApiError("Request timed out. Please try again.", 408);
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeout);
+  }
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     throw new ApiError(payload.error || "Request failed", response.status);

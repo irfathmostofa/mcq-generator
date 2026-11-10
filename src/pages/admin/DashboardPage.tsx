@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { StatCard } from "@/components/StatCard";
 import { EmptyState } from "@/components/EmptyState";
+import { Skeleton } from "@/components/ui/skeleton";
 import { getDashboardStats, getRecentExams } from "@/services/dashboard";
 import type { DashboardStats, Examination } from "@/types";
 
@@ -9,8 +10,10 @@ export function DashboardPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [exams, setExams] = useState<Examination[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    setLoading(true);
     Promise.all([getDashboardStats(), getRecentExams()])
       .then(([nextStats, nextExams]) => {
         setStats(nextStats);
@@ -18,7 +21,8 @@ export function DashboardPage() {
       })
       .catch((err: unknown) => {
         setError(err instanceof Error ? err.message : "Failed to load dashboard");
-      });
+      })
+      .finally(() => setLoading(false));
   }, []);
 
   return (
@@ -45,7 +49,12 @@ export function DashboardPage() {
       </div>
       <div className="mt-8">
         <h2 className="mb-3 text-lg font-semibold">Recent examinations</h2>
-        {exams.length === 0 ? (
+        {loading ? (
+          <div className="space-y-2">
+            <Skeleton className="h-12 w-full" />
+            <Skeleton className="h-12 w-full" />
+          </div>
+        ) : exams.length === 0 ? (
           <EmptyState
             title="No examinations yet"
             description="Create subjects, upload PDFs, generate MCQs, then publish an exam."

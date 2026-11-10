@@ -813,8 +813,8 @@ app.get("/api/results", requireAdmin, (req, res) => {
        FROM exam_results r
        JOIN participants p ON p.id = r.participant_id
        JOIN examinations e ON e.id = r.examination_id
-       ${where}
-       ORDER BY r.rank ASC NULLS LAST, r.obtained_marks DESC, r.created_at ASC`,
+        ${where}
+        ORDER BY CASE WHEN r.rank IS NULL THEN 1 ELSE 0 END, r.rank ASC, r.obtained_marks DESC, r.created_at ASC`,
       params,
     ),
   );
