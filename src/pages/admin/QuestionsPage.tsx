@@ -25,7 +25,9 @@ export function QuestionsPage() {
     setLoading(true);
     refresh()
       .catch((err: unknown) => {
-        setError(err instanceof Error ? err.message : "Failed to load questions");
+        setError(
+          err instanceof Error ? err.message : "Failed to load questions",
+        );
       })
       .finally(() => setLoading(false));
   }, []);
@@ -84,22 +86,25 @@ export function QuestionsPage() {
                   <Badge variant="destructive">uncertain</Badge>
                 ) : null}
               </div>
-              <p className="break-words font-medium">{question.question_text}</p>
+              <p className="bn font-medium">{question.question_text}</p>
               <ul className="mt-2 grid gap-1 text-sm text-muted-foreground">
-                <li className="break-words">A. {question.option_a}</li>
-                <li className="break-words">B. {question.option_b}</li>
-                <li className="break-words">C. {question.option_c}</li>
-                <li className="break-words">D. {question.option_d}</li>
+                <li className="bn">A. {question.option_a}</li>
+                <li className="bn">B. {question.option_b}</li>
+                <li className="bn">C. {question.option_c}</li>
+                <li className="bn">D. {question.option_d}</li>
               </ul>
               <p className="mt-2 text-xs">Correct: {question.correct_option}</p>
               {question.explanation ? (
-                <p className="mt-1 break-words text-xs text-muted-foreground">
+                <p className="bn mt-1 text-xs text-muted-foreground">
                   {question.explanation}
                 </p>
               ) : null}
               {question.sources?.map((source) => (
-                <p key={source.id} className="mt-2 break-words text-xs text-muted-foreground">
-                  Source page {source.page_number}: {source.supporting_text}
+                <p
+                  key={source.id}
+                  className="bn mt-2 text-xs text-muted-foreground"
+                >
+                  {source.supporting_text}
                 </p>
               ))}
               <div className="mt-3 flex flex-wrap gap-2">

@@ -2,7 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { saveAnswers, submitExam, type PublicQuestion } from "@/services/public-exam";
+import {
+  saveAnswers,
+  submitExam,
+  type PublicQuestion,
+} from "@/services/public-exam";
 import type { CorrectOption } from "@/types";
 
 type AttemptState = {
@@ -95,7 +99,10 @@ export function ExamTakePage() {
       const submitted = await submitExam(attempt.accessToken, payload());
       sessionStorage.setItem(`resultToken:${slug}`, attempt.accessToken);
       if (submitted.result) {
-        sessionStorage.setItem(`result:${slug}`, JSON.stringify(submitted.result));
+        sessionStorage.setItem(
+          `result:${slug}`,
+          JSON.stringify(submitted.result),
+        );
       }
       sessionStorage.removeItem(`attempt:${slug}`);
       navigate(`/exam/${slug}/result`, { replace: true });
@@ -184,7 +191,7 @@ export function ExamTakePage() {
             </button>
           ))}
         </div>
-        <p className="break-words font-medium">{current.question_text}</p>
+        <p className="bn font-medium">{current.question_text}</p>
         {(["A", "B", "C", "D"] as const).map((option) => (
           <label key={option} className="mt-2 flex items-start gap-2 text-sm">
             <input
@@ -196,7 +203,7 @@ export function ExamTakePage() {
                 setAnswers((prev) => ({ ...prev, [current.id]: option }))
               }
             />
-            <span className="break-words">
+            <span className="bn">
               {option}. {optionText?.[option]}
             </span>
           </label>
@@ -236,7 +243,9 @@ export function ExamTakePage() {
             {pending ? "Submitting..." : "Submit"}
           </Button>
         </div>
-        {error ? <p className="mt-3 text-sm text-destructive">{error}</p> : null}
+        {error ? (
+          <p className="mt-3 text-sm text-destructive">{error}</p>
+        ) : null}
       </CardContent>
     </Card>
   );
