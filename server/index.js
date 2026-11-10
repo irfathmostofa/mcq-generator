@@ -19,39 +19,6 @@ function cleanText(value) {
   return rewriteQuestionStem(repairBengaliSpacing(value ?? ""));
 }
 
-function rewriteStoredText(table, columns) {
-  const rows = all(`SELECT id, ${columns.join(", ")} FROM ${table}`);
-  const assignments = columns.map((column) => `${column} = ?`).join(", ");
-  const update = db.prepare(`UPDATE ${table} SET ${assignments} WHERE id = ?`);
-  for (const row of rows) {
-    const values = columns.map((column) =>
-      column === "question_text"
-        ? cleanText(row[column])
-        : repairBengaliSpacing(row[column] ?? ""),
-    );
-    update.run(...values, row.id);
-  }
-}
-
-rewriteStoredText("question_bank", [
-  "question_text",
-  "option_a",
-  "option_b",
-  "option_c",
-  "option_d",
-  "explanation",
-]);
-rewriteStoredText("examination_questions", [
-  "question_text",
-  "option_a",
-  "option_b",
-  "option_c",
-  "option_d",
-  "explanation",
-]);
-rewriteStoredText("document_chunks", ["content"]);
-rewriteStoredText("question_sources", ["supporting_text"]);
-
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, uploadDir),
   filename: (_req, file, cb) => {

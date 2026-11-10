@@ -23,78 +23,112 @@ export function repairBengaliSpacing(text) {
     "$1",
   );
   next = next.replace(/([\u09CD])[ \t]+(?=[\u0980-\u09FF])/g, "$1");
-  next = next.replace(/([\u0980-\u09FF])[ \t]+(?=[\u09CD])/g, "$1");
-  const tokens = next.match(/[\u0980-\u09FF]+/g) || [];
-  const short = tokens.filter((token) => token.length <= 2).length;
-  if (tokens.length >= 2 && short / tokens.length >= 0.5) {
-    next = next.replace(/([\u0980-\u09FF])[ \t]+(?=[\u0980-\u09FF])/g, "$1");
-  }
+  next = next.replace(
+    /([\u0985-\u09B9\u09CE\u09DC-\u09E1])[ \t]+(?=[\u09CD])/g,
+    "$1",
+  );
   return next
     .replace(/[ \t]{2,}/g, " ")
     .replace(/\s+\n/g, "\n")
     .trim();
 }
 
+export function isReadableBengali(text) {
+  const tokens = String(text || "").match(/[\u0980-\u09FF]+/g) || [];
+  if (tokens.length === 0) return true;
+  const total = tokens.reduce((sum, token) => sum + token.length, 0);
+  if (total < 24) return true;
+  const average = total / tokens.length;
+  const singles = tokens.filter((token) => token.length === 1).length;
+  if (tokens.length === 1) return false;
+  if (tokens.length >= 6 && singles / tokens.length >= 0.45) return false;
+  if (tokens.length >= 4 && average < 2.8) return false;
+  return average <= 16;
+}
+
 function isBengaliChar(value) {
   return Boolean(value) && BENGALI_LETTER.test(value);
 }
 
-function shouldInsertSpace(prev, next, gap, fontSize, lineBreak, hasEOL) {
+function shouldInsertSpace(prev, next, gap, fontSize) {
   if (!prev || !next) return false;
-  if (hasEOL || lineBreak) return true;
   if (next === " " || prev === " ") return false;
-  if (BENGALI_MARK.test(next) || next === "\u09CD" || prev === "\u09CD")
+  if (BENGALI_MARK.test(next) || next === "\u09CD" || prev === "\u09CD") {
     return false;
-  if (isBengaliChar(prev) && isBengaliChar(next)) {
-    return gap > fontSize * 0.45;
   }
-  return gap > fontSize * 0.16;
+  const threshold = isBengaliChar(prev) && isBengaliChar(next)
+    ? fontSize * 0.28
+    : fontSize * 0.16;
+  return gap > threshold;
+}
+
+function normalizeItem(item) {
+  if (!item || typeof item.str !== "string" || !item.str) return null;
+  const transform = Array.isArray(item.transform)
+    ? item.transform
+    : [1, 0, 0, 1, 0, 0];
+  const fontSize = Math.abs(transform[0] || transform[3] || 10) || 10;
+  const width =
+    typeof item.width === "number" && item.width > 0
+      ? item.width
+      : item.str.length * fontSize * 0.4;
+  return {
+    str: item.str,
+    x: transform[4],
+    y: transform[5],
+    fontSize,
+    width,
+  };
 }
 
 function itemsToText(items) {
-  let text = "";
-  let lastEnd = null;
-  let lastY = null;
-  let lastChar = "";
-  let lastFontSize = 10;
-
+  const usable = [];
   for (const item of items) {
-    if (!item || typeof item.str !== "string" || !item.str) continue;
-    const transform = Array.isArray(item.transform)
-      ? item.transform
-      : [1, 0, 0, 1, 0, 0];
-    const x = transform[4];
-    const y = transform[5];
-    const fontSize =
-      Math.abs(transform[0] || transform[3] || lastFontSize) || lastFontSize;
-    const width =
-      typeof item.width === "number" && item.width > 0
-        ? item.width
-        : item.str.length * fontSize * 0.55;
-    const lineBreak = lastY !== null && Math.abs(y - lastY) > fontSize * 0.55;
-    const gap = lastEnd === null ? 0 : x - lastEnd;
-    const firstChar = item.str[0];
-    if (
-      shouldInsertSpace(
-        lastChar,
-        firstChar,
-        gap,
-        fontSize,
-        lineBreak,
-        Boolean(item.hasEOL),
-      ) &&
-      !text.endsWith(" ")
-    ) {
-      text += " ";
+    const normalized = normalizeItem(item);
+    if (normalized) usable.push(normalized);
+  }
+  if (usable.length === 0) return "";
+
+  const avgFont =
+    usable.reduce((sum, item) => sum + item.fontSize, 0) / usable.length;
+  const yThreshold = avgFont * 0.5;
+
+  usable.sort((a, b) => {
+    if (Math.abs(a.y - b.y) > yThreshold) return b.y - a.y;
+    return a.x - b.x;
+  });
+
+  const lines = [];
+  for (const item of usable) {
+    const current = lines[lines.length - 1];
+    if (!current || Math.abs(current[0].y - item.y) > yThreshold) {
+      lines.push([item]);
+    } else {
+      current.push(item);
     }
-    text += item.str;
-    lastChar = item.str[item.str.length - 1];
-    lastEnd = x + width;
-    lastY = y;
-    lastFontSize = fontSize;
   }
 
-  return repairBengaliSpacing(text);
+  const lineTexts = lines.map((line) => {
+    line.sort((a, b) => a.x - b.x);
+    let text = "";
+    let lastEnd = null;
+    let lastChar = "";
+    for (const item of line) {
+      const gap = lastEnd === null ? 0 : item.x - lastEnd;
+      if (
+        shouldInsertSpace(lastChar, item.str[0], gap, item.fontSize) &&
+        !text.endsWith(" ")
+      ) {
+        text += " ";
+      }
+      text += item.str;
+      lastChar = item.str[item.str.length - 1];
+      lastEnd = item.x + item.width;
+    }
+    return text;
+  });
+
+  return repairBengaliSpacing(lineTexts.join(" "));
 }
 
 export async function extractPdfPages(filePath) {

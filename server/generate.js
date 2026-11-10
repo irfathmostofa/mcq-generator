@@ -1,4 +1,4 @@
-import { repairBengaliSpacing } from "./extract.js";
+import { isReadableBengali, repairBengaliSpacing } from "./extract.js";
 
 function normalize(text) {
   return text.toLowerCase().replace(/\s+/g, " ").trim();
@@ -33,7 +33,12 @@ function splitSentences(text, minLength = 32) {
   return text
     .split(/(?<=[।.!?])\s+/)
     .map((item) => item.replace(/\s+/g, " ").trim())
-    .filter((item) => item.length >= minLength && item.length <= 420);
+    .filter(
+      (item) =>
+        item.length >= minLength &&
+        item.length <= 420 &&
+        isReadableBengali(item),
+    );
 }
 
 function truncate(text, max = 110) {
