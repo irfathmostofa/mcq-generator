@@ -1,3 +1,5 @@
+import { repairBengaliSpacing } from "./extract.js";
+
 function normalize(text) {
   return text.toLowerCase().replace(/\s+/g, " ").trim();
 }
@@ -86,35 +88,50 @@ function assignDifficulty(index, total, dist) {
   return "hard";
 }
 
+function hasBengali(text) {
+  return /[\u0980-\u09FF]/.test(text);
+}
+
+export function rewriteQuestionStem(text) {
+  let next = String(text || "");
+  next = next.replace(/^According to the source material,\s*/i, "");
+  next = next.replace(/^According to the source,\s*/i, "");
+  next = next.replace(/^উৎস অনুসারে\s*/u, "");
+  next = next.replace(/সম্পর্কে উৎস কী বলে\?$/u, "সম্পর্কে নিচের কোন তথ্যটি সঠিক?");
+  if (next && /^[a-z]/.test(next)) {
+    next = next.charAt(0).toUpperCase() + next.slice(1);
+  }
+  return next;
+}
+
 function buildQuestion(sentence, pool, language) {
-  const year = yearFrom(sentence.text);
-  const definition = definitionParts(sentence.text);
+  const text = repairBengaliSpacing(sentence.text);
+  const year = yearFrom(text);
+  const definition = definitionParts(text);
+  const useBn = language === "bn" || hasBengali(text);
   let questionText;
   let correct;
   let explanation;
 
   if (year) {
-    questionText =
-      language === "bn"
-        ? `${truncate(sentence.text.replace(year, "____"), 140)} কোন সালে ঘটে?`
-        : `According to the source, which year is associated with: ${truncate(sentence.text.replace(year, "____"), 140)}`;
+    questionText = useBn
+      ? `${truncate(text.replace(year, "____"), 140)} কোন সালে ঘটে?`
+      : `Which year is associated with: ${truncate(text.replace(year, "____"), 140)}`;
     correct = year;
-    explanation = sentence.text;
+    explanation = text;
   } else if (definition) {
-    questionText =
-      language === "bn"
-        ? `${truncate(definition.subject, 80)} সম্পর্কে উৎস কী বলে?`
-        : `According to the source, which statement about "${truncate(definition.subject, 80)}" is correct?`;
+    questionText = useBn
+      ? `${truncate(definition.subject, 80)} সম্পর্কে নিচের কোন তথ্যটি সঠিক?`
+      : `Which statement about "${truncate(definition.subject, 80)}" is correct?`;
     correct = truncate(definition.rest, 110);
-    explanation = sentence.text;
+    explanation = text;
   } else {
-    const lead = sentence.text.split(/\s+/).slice(0, 6).join(" ");
-    questionText =
-      language === "bn"
-        ? `উৎস অনুসারে "${lead}…" সম্পর্কে নিচের কোন তথ্যটি সঠিক?`
-        : `According to the source material, which statement about "${lead}…" is correct?`;
-    correct = truncate(sentence.text, 110);
-    explanation = sentence.text;
+    const lead = text.split(/\s+/).slice(0, 6).join(" ");
+    questionText = useBn
+      ? `"${lead}…" সম্পর্কে নিচের কোন তথ্যটি সঠিক?`
+      : `Which statement about "${lead}…" is correct?`;
+    correct = truncate(text, 110);
+    explanation = text;
   }
 
   const distractors = uniqueOptions(
@@ -136,7 +153,7 @@ function buildQuestion(sentence, pool, language) {
   const correctIndex = shuffled.findIndex((item) => item === correct);
 
   return {
-    question_text: questionText,
+    question_text: rewriteQuestionStem(questionText),
     option_a: shuffled[0],
     option_b: shuffled[1],
     option_c: shuffled[2],
@@ -195,7 +212,11 @@ export function generateFromChunks(chunks, config, existingTexts) {
     for (const sentence of sentences) {
       if (generated.length >= target) break;
       if (doneSources.has(sentence.text)) continue;
-      const draft = buildQuestion(sentence, sentences, config.language);
+      const draft = buildQuestion(
+        sentence,
+        sentences,
+        hasBengali(sentence.text) ? "bn" : config.language,
+      );
       if (!draft) continue;
       if (isSimilar(draft.question_text, used, pass.threshold)) continue;
       const options = [draft.option_a, draft.option_b, draft.option_c, draft.option_d];

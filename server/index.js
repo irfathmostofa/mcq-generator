@@ -5,8 +5,8 @@ import path from "node:path";
 import fs from "node:fs";
 import { all, bool, db, get, id, now, run, uploadDir } from "./db.js";
 import { loginLocalAdmin, requireAdmin, supabaseReady } from "./auth.js";
-import { chunkPages, extractPdfPages, isLikelyScanned } from "./extract.js";
-import { calculateScore, generateFromChunks } from "./generate.js";
+import { chunkPages, extractPdfPages, isLikelyScanned, repairBengaliSpacing } from "./extract.js";
+import { calculateScore, generateFromChunks, rewriteQuestionStem } from "./generate.js";
 
 const PORT = Number(process.env.PORT || 5173);
 const DIST = path.join(process.cwd(), "dist");
@@ -14,6 +14,43 @@ const app = express();
 
 app.use(cors());
 app.use(express.json({ limit: "4mb" }));
+
+function cleanText(value) {
+  return rewriteQuestionStem(repairBengaliSpacing(value ?? ""));
+}
+
+function rewriteStoredText(table, columns) {
+  const rows = all(`SELECT id, ${columns.join(", ")} FROM ${table}`);
+  const assignments = columns.map((column) => `${column} = ?`).join(", ");
+  const update = db.prepare(`UPDATE ${table} SET ${assignments} WHERE id = ?`);
+  for (const row of rows) {
+    const values = columns.map((column) =>
+      column === "question_text"
+        ? cleanText(row[column])
+        : repairBengaliSpacing(row[column] ?? ""),
+    );
+    update.run(...values, row.id);
+  }
+}
+
+rewriteStoredText("question_bank", [
+  "question_text",
+  "option_a",
+  "option_b",
+  "option_c",
+  "option_d",
+  "explanation",
+]);
+rewriteStoredText("examination_questions", [
+  "question_text",
+  "option_a",
+  "option_b",
+  "option_c",
+  "option_d",
+  "explanation",
+]);
+rewriteStoredText("document_chunks", ["content"]);
+rewriteStoredText("question_sources", ["supporting_text"]);
 
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, uploadDir),
@@ -39,6 +76,12 @@ function mapQuestion(row) {
   if (!row) return null;
   return {
     ...row,
+    question_text: cleanText(row.question_text),
+    option_a: repairBengaliSpacing(row.option_a),
+    option_b: repairBengaliSpacing(row.option_b),
+    option_c: repairBengaliSpacing(row.option_c),
+    option_d: repairBengaliSpacing(row.option_d),
+    explanation: row.explanation ? repairBengaliSpacing(row.explanation) : row.explanation,
     is_uncertain: Boolean(row.is_uncertain),
   };
 }
@@ -90,7 +133,14 @@ function publicQuestions(examId) {
     `SELECT id, examination_id, sort_order, question_text, option_a, option_b, option_c, option_d, marks
      FROM examination_questions WHERE examination_id = ? ORDER BY sort_order`,
     [examId],
-  );
+  ).map((row) => ({
+    ...row,
+    question_text: cleanText(row.question_text),
+    option_a: repairBengaliSpacing(row.option_a),
+    option_b: repairBengaliSpacing(row.option_b),
+    option_c: repairBengaliSpacing(row.option_c),
+    option_d: repairBengaliSpacing(row.option_d),
+  }));
 }
 
 async function processResource(resourceId) {
@@ -624,13 +674,13 @@ app.post("/api/generate", requireAdmin, (req, res) => {
     if (draft.is_uncertain) uncertain += 1;
     insertQuestion.run(
       questionId,
-      draft.question_text,
-      draft.option_a,
-      draft.option_b,
-      draft.option_c,
-      draft.option_d,
+      cleanText(draft.question_text),
+      repairBengaliSpacing(draft.option_a),
+      repairBengaliSpacing(draft.option_b),
+      repairBengaliSpacing(draft.option_c),
+      repairBengaliSpacing(draft.option_d),
       draft.correct_option,
-      draft.explanation,
+      draft.explanation ? repairBengaliSpacing(draft.explanation) : draft.explanation,
       draft.difficulty,
       config.language,
       config.subject_id || null,
@@ -652,7 +702,7 @@ app.post("/api/generate", requireAdmin, (req, res) => {
       draft.source_resource_id,
       draft.source_chunk_id,
       draft.source_page_number,
-      draft.supporting_text,
+      repairBengaliSpacing(draft.supporting_text),
       timestamp,
     );
   }
@@ -784,11 +834,11 @@ app.post("/api/exams/:id/publish", requireAdmin, (req, res) => {
         exam.id,
         question.id,
         index + 1,
-        question.question_text,
-        question.option_a,
-        question.option_b,
-        question.option_c,
-        question.option_d,
+        cleanText(question.question_text),
+        repairBengaliSpacing(question.option_a),
+        repairBengaliSpacing(question.option_b),
+        repairBengaliSpacing(question.option_c),
+        repairBengaliSpacing(question.option_d),
         question.correct_option,
         question.explanation,
         exam.marks_per_question,

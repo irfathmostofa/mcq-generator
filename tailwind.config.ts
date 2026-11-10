@@ -7,11 +7,10 @@ export default {
     extend: {
       fontFamily: {
         sans: [
+          '"Noto Sans Bengali"',
+          "Nirmala UI",
           "ui-sans-serif",
           "system-ui",
-          "Segoe UI",
-          "Noto Sans Bengali",
-          "Nirmala UI",
           "sans-serif",
         ],
       },
