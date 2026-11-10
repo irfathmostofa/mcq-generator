@@ -6,8 +6,8 @@
   "scripts": {
     "dev": "concurrently -k \"npm:dev:server\" \"npm:dev:client\"",
     "dev:client": "node scripts/run-with-env.mjs vite",
-    "dev:server": "node scripts/run-with-env.mjs PORT=3001 node --env-file-if-exists=.env --watch-path=server --watch server/index.js",
-    "start": "node scripts/run-with-env.mjs PORT=5173 node --env-file-if-exists=.env server/index.js",
+    "dev:server": "node scripts/run-with-env.mjs PORT=3001 node --watch-path=server --watch server/index.js",
+    "start": "node scripts/run-with-env.mjs PORT=5173 node server/index.js",
     "build": "tsc -b && node scripts/run-with-env.mjs vite build",
     "preview": "node scripts/run-with-env.mjs vite preview",
     "lint": "eslint .",
