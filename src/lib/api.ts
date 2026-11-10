@@ -1,5 +1,7 @@
 import { supabase, supabaseConfigured } from "@/lib/supabase";
 
+const LOCAL_TOKEN_KEY = "mcq.local.token";
+
 export class ApiError extends Error {
   status: number;
   constructor(message: string, status: number) {
@@ -8,7 +10,26 @@ export class ApiError extends Error {
   }
 }
 
+export function getLocalToken(): string | null {
+  try {
+    return window.localStorage.getItem(LOCAL_TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function setLocalToken(token: string | null): void {
+  try {
+    if (token) window.localStorage.setItem(LOCAL_TOKEN_KEY, token);
+    else window.localStorage.removeItem(LOCAL_TOKEN_KEY);
+  } catch {
+    /* ignore quota / private mode */
+  }
+}
+
 async function getAccessToken(): Promise<string | null> {
+  const local = getLocalToken();
+  if (local) return local;
   if (!supabaseConfigured) return null;
   try {
     const { data } = await supabase.auth.getSession();

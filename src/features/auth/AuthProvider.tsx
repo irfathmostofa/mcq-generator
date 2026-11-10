@@ -7,7 +7,7 @@ import {
   useState,
 } from "react";
 import { supabase, supabaseConfigured } from "@/lib/supabase";
-import { ApiError } from "@/lib/api";
+import { ApiError, getLocalToken } from "@/lib/api";
 import { fetchAdminProfile, signOut, type AuthUser } from "@/services/auth";
 
 type AuthContextValue = {
@@ -22,7 +22,7 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
-  const [loading, setLoading] = useState(supabaseConfigured);
+  const [loading, setLoading] = useState(true);
   const [accessError, setAccessError] = useState<string | null>(null);
 
   const resolveProfile = useCallback(async (hasSession: boolean) => {
@@ -59,34 +59,44 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (!supabaseConfigured) {
-      setLoading(false);
-      return;
-    }
-
     let cancelled = false;
 
-    void supabase.auth
-      .getSession()
-      .then(({ data }) => {
+    async function restore() {
+      if (getLocalToken()) {
+        if (!cancelled) await resolveProfile(true);
+        return;
+      }
+      if (!supabaseConfigured) {
+        if (!cancelled) {
+          setUser(null);
+          setLoading(false);
+        }
+        return;
+      }
+      try {
+        const { data } = await supabase.auth.getSession();
         if (cancelled) return;
-        void resolveProfile(Boolean(data.session));
-      })
-      .catch(() => {
+        await resolveProfile(Boolean(data.session));
+      } catch {
         if (cancelled) return;
         setUser(null);
         setLoading(false);
         setAccessError("Could not restore your session. Please sign in again.");
-      });
+      }
+    }
 
-    const { data } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event === "INITIAL_SESSION" || event === "TOKEN_REFRESHED") return;
-      if (cancelled) return;
-      setLoading(true);
-      setTimeout(() => {
-        if (!cancelled) void resolveProfile(Boolean(session));
-      }, 0);
-    });
+    void restore();
+
+    const { data } = supabaseConfigured
+      ? supabase.auth.onAuthStateChange((event, session) => {
+          if (event === "INITIAL_SESSION" || event === "TOKEN_REFRESHED") return;
+          if (cancelled || getLocalToken()) return;
+          setLoading(true);
+          setTimeout(() => {
+            if (!cancelled) void resolveProfile(Boolean(session));
+          }, 0);
+        })
+      : { data: { subscription: { unsubscribe() {} } } };
 
     const timeout = window.setTimeout(() => {
       if (!cancelled) setLoading(false);
@@ -100,11 +110,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [resolveProfile]);
 
   const refresh = useCallback(async () => {
+    setLoading(true);
+    if (getLocalToken()) {
+      await resolveProfile(true);
+      return;
+    }
     if (!supabaseConfigured) {
+      setUser(null);
       setLoading(false);
       return;
     }
-    setLoading(true);
     const { data } = await supabase.auth.getSession();
     await resolveProfile(Boolean(data.session));
   }, [resolveProfile]);

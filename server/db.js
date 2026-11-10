@@ -12,12 +12,22 @@ const uploadDir = path.join(dataDir, "uploads");
 fs.mkdirSync(uploadDir, { recursive: true });
 
 export const db = new DatabaseSync(path.join(dataDir, "app.db"));
-export { uploadDir };
+export { uploadDir, dataDir };
 
 db.exec("PRAGMA journal_mode = WAL");
 db.exec("PRAGMA foreign_keys = ON");
 
 db.exec(`
+CREATE TABLE IF NOT EXISTS admins (
+  id TEXT PRIMARY KEY,
+  email TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  full_name TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'super_admin',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS subjects (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL UNIQUE,

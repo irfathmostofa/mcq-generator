@@ -1,6 +1,17 @@
 # Authentication
 
-Admin authentication uses **Supabase Auth** (email + password).
+Admin authentication uses **Supabase Auth** when configured, and a local SQLite admin account otherwise.
+
+## Local login (no Supabase)
+
+If `VITE_SUPABASE_URL` / service-role keys are missing, or the `admin_profiles` lookup fails, the API still accepts a local admin:
+
+- Default email: `admin@local.test`
+- Default password: `admin1234`
+
+Override with `ADMIN_EMAIL`, `ADMIN_PASSWORD`, and `AUTH_SECRET`. The first process start seeds that user into SQLite.
+
+## Supabase flow
 
 ## Flow
 

@@ -4,7 +4,7 @@ import multer from "multer";
 import path from "node:path";
 import fs from "node:fs";
 import { all, bool, db, get, id, now, run, uploadDir } from "./db.js";
-import { requireAdmin } from "./auth.js";
+import { loginLocalAdmin, requireAdmin, supabaseReady } from "./auth.js";
 import { chunkPages, extractPdfPages, isLikelyScanned } from "./extract.js";
 import { calculateScore, generateFromChunks } from "./generate.js";
 
@@ -229,6 +229,28 @@ function evaluateAttempt(attempt) {
   });
   return get("SELECT * FROM exam_results WHERE attempt_id = ?", [attempt.id]);
 }
+
+app.get("/api/auth/config", (_req, res) => {
+  res.json({
+    supabase: supabaseReady(),
+    local: true,
+  });
+});
+
+app.post("/api/auth/login", (req, res) => {
+  const email = String(req.body?.email || "").trim();
+  const password = String(req.body?.password || "");
+  if (!email || !password) {
+    res.status(400).json({ error: "Email and password are required" });
+    return;
+  }
+  const result = loginLocalAdmin(email, password);
+  if (!result) {
+    res.status(401).json({ error: "Invalid email or password." });
+    return;
+  }
+  res.json({ token: result.token, user: result.admin });
+});
 
 app.get("/api/auth/me", requireAdmin, (req, res) => {
   res.json(req.admin);

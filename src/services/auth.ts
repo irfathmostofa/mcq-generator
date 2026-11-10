@@ -1,4 +1,4 @@
-import { api } from "@/lib/api";
+import { api, setLocalToken } from "@/lib/api";
 import { supabase, supabaseConfigured } from "@/lib/supabase";
 
 export type AuthUser = {
@@ -10,30 +10,42 @@ export type AuthUser = {
 
 export class AuthError extends Error {}
 
+async function signInLocal(email: string, password: string): Promise<void> {
+  const result = await api<{ token: string; user: AuthUser }>("/api/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ email, password }),
+  });
+  setLocalToken(result.token);
+}
+
 export async function signIn(email: string, password: string): Promise<void> {
-  if (!supabaseConfigured) {
-    throw new AuthError(
-      "Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.",
-    );
+  if (supabaseConfigured) {
+    try {
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (!error) {
+        setLocalToken(null);
+        return;
+      }
+    } catch {
+      /* fall through to local login */
+    }
   }
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
-  if (error) {
-    // Do not reveal whether the email exists.
+  try {
+    await signInLocal(email, password);
+  } catch (error) {
     throw new AuthError(
-      error.status === 400 ? "Invalid email or password." : error.message,
+      error instanceof Error ? error.message : "Invalid email or password.",
     );
   }
 }
 
 export async function signOut(): Promise<void> {
-  await supabase.auth.signOut();
+  setLocalToken(null);
+  if (supabaseConfigured) {
+    await supabase.auth.signOut();
+  }
 }
 
-/**
- * Asks the API who the current token belongs to. The server verifies the JWT
- * with Supabase and checks the admin_profiles table, so a valid Supabase
- * account that is not an admin gets a 403 here.
- */
 export function fetchAdminProfile(): Promise<AuthUser> {
   return api<AuthUser>("/api/auth/me");
 }

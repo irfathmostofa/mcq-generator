@@ -80,9 +80,9 @@ export function LoginPage() {
               />
             </div>
             {!supabaseConfigured ? (
-              <p className="text-sm text-destructive" role="alert">
-                Supabase is not configured. Set VITE_SUPABASE_URL and
-                VITE_SUPABASE_ANON_KEY.
+              <p className="text-sm text-muted-foreground">
+                Local admin sign-in. Default account is admin@local.test /
+                admin1234 unless ADMIN_EMAIL and ADMIN_PASSWORD are set.
               </p>
             ) : null}
             {error || accessError ? (
@@ -90,11 +90,7 @@ export function LoginPage() {
                 {error ?? accessError}
               </p>
             ) : null}
-            <Button
-              className="w-full"
-              type="submit"
-              disabled={pending || loading || !supabaseConfigured}
-            >
+            <Button className="w-full" type="submit" disabled={pending || loading}>
               {pending || loading ? "Signing in..." : "Sign in"}
             </Button>
           </form>
