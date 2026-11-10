@@ -7,10 +7,9 @@ export default {
     extend: {
       fontFamily: {
         sans: [
-          '"Hind Siliguri"',
           '"Noto Sans Bengali"',
+          '"Hind Siliguri"',
           "Nirmala UI",
-          "Vrinda",
           "ui-sans-serif",
           "system-ui",
           "sans-serif",

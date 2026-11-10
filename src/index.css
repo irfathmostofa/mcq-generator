@@ -74,17 +74,22 @@
     @apply min-h-full max-w-full;
   }
 
+  html {
+    letter-spacing: normal;
+  }
+
   body {
     @apply bg-background font-sans text-foreground;
-    font-family: "Hind Siliguri", "Noto Sans Bengali", "Nirmala UI", sans-serif;
+    font-family: "Noto Sans Bengali", "Hind Siliguri", "Nirmala UI", sans-serif;
     line-height: 1.8;
-    text-rendering: auto;
-    -webkit-font-smoothing: auto;
-    -moz-osx-font-smoothing: auto;
-    font-kerning: normal;
-    font-feature-settings: "kern", "liga", "clig", "calt";
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-kerning: auto;
+    font-synthesis: none;
     word-break: normal;
     overflow-wrap: break-word;
+    letter-spacing: normal;
   }
 
   p,
@@ -98,13 +103,28 @@
     word-break: normal;
     overflow-wrap: break-word;
     line-height: 1.8;
+    letter-spacing: normal;
   }
 
   .bn {
-    font-family: "Hind Siliguri", "Noto Sans Bengali", "Nirmala UI", sans-serif;
-    word-break: keep-all;
-    overflow-wrap: anywhere;
+    font-family: "Noto Sans Bengali", "Hind Siliguri", "Nirmala UI", sans-serif;
+    word-break: normal;
+    overflow-wrap: break-word;
     line-height: 1.9;
+    letter-spacing: normal;
+    font-synthesis: none;
+  }
+
+  .tracking-tight,
+  .tracking-tighter,
+  .tracking-wide,
+  .tracking-wider,
+  .tracking-widest {
+    letter-spacing: normal;
+  }
+
+  .leading-none {
+    line-height: 1.5;
   }
 
   img,
